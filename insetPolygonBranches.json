@@ -1,0 +1,13 @@
+{
+    "parameterSets": {
+        "design default values": {
+            "angleIncrement": "20",
+            "lineWidth": "0.48",
+            "radius": "80",
+            "shapeType": "1",
+            "sides": "9",
+            "single": "false"
+        }
+    },
+    "fileFormatVersion": "1"
+}
