@@ -1,105 +1,136 @@
 
-sides = 8;
-layerHeight = 1;
-fixedRadius = 30;
-sinRadius = 15;
-twistPer100mm = 150;
-segmentEndPoints = [60, 160];
-segmentPatternHeights = [60, 100];
-hullInterval = 2;
+sides = 12;
+layerHeight = 0.2;
+//fixedRadius = 30;
+//sinRadius = 60;
+twistPer100mm = 100;
 twist = 0;
+bottomRadius = 30;
+sphereRadius = 40;
 
-cornerRadius = 0.6;
-cornerLength = 2;
-cornerVariableInset =  0;
-cornerFixedInset = 1;//cornerRadius - 1;
-cornerFixedOffsetAngle = 0;
-cornerVariableOffsetAngle = -2;
-
-segmentHeights = [for (i = [0:len(segmentEndPoints)-1]) segmentEndPoints[i] - (i == 0 ? 0 : segmentEndPoints[i-1])]; 
-segmentSteps = [for (segmentHeight=segmentHeights) segmentHeight / layerHeight];
-segmentEndSteps = [for (segmentEndPoint=segmentEndPoints) segmentEndPoint / layerHeight];
-segmentPatternSteps = [for (segmentPatternHeight=segmentPatternHeights) segmentPatternHeight / layerHeight];
+cornerRadius = 0.8;
 
 polygonAngle = 360 / sides;
 angleIncrement = twistPer100mm * (layerHeight / 100);
 sideIntersectionRatio =  sin(polygonAngle - angleIncrement) / sin(angleIncrement);
 sizeRatio = sin(180 - polygonAngle) / ((1 + sideIntersectionRatio) * sin(angleIncrement));
-angles=[for (j = [0:sides-1]) j*(360/sides) ];
 
 
-module corner(radius, height) {
-    linear_extrude(layerHeight)
-        hull(){
-            translate([radius, 0])
-            circle(cornerRadius);
-            translate([radius - cornerLength, 0])
-            circle(cornerRadius);
-        }
-}
-
-
-module layer(radius, height) {
-        outerPoints = getPoints(angles, radius);
-        innerPoints = getPoints(angles, radius-2);
-        linear_extrude(height, twist = twist)
+module flatLayer(PR, PW, RO, RI) {
+    if (PR > 0){
         difference(){
-            polygon(points = outerPoints);
-            polygon(points = innerPoints);
+            flatPolygon(PR);
+            flatPolygon(PR - PW);          
         }
+    }
+    if (RO > 0){
+        for (corner = [0:sides]){
+            rotate(corner * polygonAngle)
+            hull(){
+                translate([RO, 0])
+                circle(cornerRadius);
+                translate([RI, 0])
+                circle(cornerRadius);
+            }
+        }
+        
+    }
 }
 
+module flatPolygon(radius){
+    union(){
+        polygon(points = getPoints(getAngles(sides), radius));
+        //polygon(points = getPoints(getAngles(sides*3), radius*0.95));
+    }
+}
+
+function getAngles(sides) = [for (j = [0:sides-1]) j*(360/sides)];
 function getPoints(angles, radius) = [for (th=angles) [radius*cos(th), radius*sin(th)]];
-function getAngleAdjustment(steps) = -(steps * angleIncrement) % 360;
-function getSinRadius(currentSegment, interval) = fixedRadius + sinRadius * sin(180*(currentSegment/segmentPatternSteps[interval]));
-function getNestedRadius(currentSegment, interval) = fixedRadius * (sizeRatio ^ (currentSegment * 2.5));
 function angleFromTriangleSides(op, aj1, aj2) = acos ((aj1 ^ 2 + aj2 ^ 2 - op ^ 2) / ( 2 * aj1 * aj2));
+function cat(L1, L2) = [for(L=[L1, L2], a=L) a];
+function zeroNegatives(list) = [for (item = list) max(0, item)];
+
+module bottomCap(radius){
+    holeRadius = 25;
+    coneHeight = 2;
+    wallThickness = 1.2;
+    screwThreadDia = 2.7;
+    screwHeadDia = 5;
+    screwSlotAngleSpan = 20;
+    screwSlotCircleDia = 40;
+     difference(){
+        union(){
+            linear_extrude(wallThickness)
+                difference(){
+                    flatLayer(radius, radius, 0, 0);
+                    for (slotAngleInterval = [0:3]){
+                        rotate(slotAngleInterval * 120)
+                        union(){
+                            for (angle=[0:0.1:screwSlotAngleSpan]){
+                                rotate(angle)
+                                translate([screwSlotCircleDia/2, 0, 0])
+                                circle(screwThreadDia / 2);
+                            }
+                            translate([screwSlotCircleDia/2, 0, 0])
+                            circle(screwHeadDia / 2);
+                        }
+                    }
+                }               
+                hull(){
+                    translate([0, 0, coneHeight])
+                        cylinder(0.01, holeRadius/2 + wallThickness * sqrt(2));
+                    cylinder(0.01, holeRadius/2 + wallThickness * sqrt(2) + coneHeight);            
+                }        
+        }
+         hull(){
+            translate([0, 0, coneHeight+0.01])
+                cylinder(0.01, holeRadius/2);
+            translate([0, 0, -0.01])
+                cylinder(0.01, holeRadius/2 + coneHeight);            
+        }
+       
+    }
+      
+}
+
 
 module stackedPolygons(){
-    for (corner = [0:sides]){
-        rotate(corner * polygonAngle)
-        for (i=[0:hullInterval:(segmentSteps[0] - hullInterval)]){
-            hull(){
-                for (j=[i:i+hullInterval]){
-                    variableRatio = - cos(180*(j/segmentPatternSteps[0]));
-                    radiusOffset = - (cornerFixedInset + cornerVariableInset * variableRatio);
-                    angleOffset = cornerFixedOffsetAngle + variableRatio * cornerVariableOffsetAngle;
-                    rotate([0, 0, getAngleAdjustment(j) + angleOffset])
-                    translate([0, 0, j*layerHeight])
-                        corner(getSinRadius(j, 0) + radiusOffset, layerHeight);
-                }
-            }
-        }
-        rotate(corner * polygonAngle)
-        for (i=[segmentEndSteps[0]:hullInterval:segmentEndSteps[1]]){
-            hull(){
-                for (j=[i:i+hullInterval]){
-                    variableRatio = (1 - (j -segmentEndSteps[0])/segmentPatternSteps[1]);
-                    radiusOffset = - (cornerFixedInset + cornerVariableInset * variableRatio);
-                    angleOffset = cornerFixedOffsetAngle + variableRatio * cornerVariableOffsetAngle;
-                    rotate([0, 0, getAngleAdjustment(j)+ angleOffset])
-                    translate([0, 0, j*layerHeight])
-                        corner(getNestedRadius(j - segmentEndSteps[0], 1) + radiusOffset ,layerHeight);
-                }
-            }
-        }
-    }
-    layerInterval = 2;
-    for (j=[0:segmentSteps[0]]){
-        if (j % layerInterval == 0){
-            rotate([0, 0, getAngleAdjustment(j)])
-            translate([0, 0, j*layerHeight])
-                layer(getSinRadius(j, 0), layerHeight);
-        }
-    }
-    for (j=[segmentEndSteps[0] : segmentEndSteps[1]-70]){
-        if (j % layerInterval == 0){
-            rotate([0, 0, getAngleAdjustment(j)])
-            translate([0, 0, j*layerHeight])
-                layer(getNestedRadius(j-segmentSteps[0], 1), layerHeight);
-        }
+    
+    heightOffset = sphereRadius - sqrt(sphereRadius ^ 2 - bottomRadius ^ 2);
+    R1 = [for (height = [heightOffset:layerHeight:sphereRadius])  sqrt(sphereRadius ^ 2 - (sphereRadius-height) ^2)];
+    R2 = [for (height = [0:layerHeight:sphereRadius])  sqrt(sphereRadius ^ 2 - height ^ 2)];
+    R = cat(R1, R2);
+    nR = len(R);
+    int = [0:nR-1];
+    
+    t1 = nR-21;
+    int1 = [0:t1-1];
+    int2 = [t1: nR-1];
+    PR1 = [for (i = int1) (i % 7 < 3) ? R[i] : 0]; 
+    PR2 = [for (i = int2) (i % 5 < 3) ? R[i] : 0]; 
+    PR = cat(PR1, PR2); 
+    
+    PW = [for (i = int) 1];
+        
+    RO = [for (i = int) R[i] - 0.75];
+    
+    t2 = round(len(R) * 0.7);
+    int3 = [0:t2-1];
+    int4 = [t2: nR-1];
+    RI1 = [for (i = int3) RO[i] - 2];
+    RI2 = [for (i = int4) RO[i] - (2 + (i-t2) * layerHeight * 0.8)];
+    RI = cat(RI1, zeroNegatives(RI2));
+        
+    LR = [for (i = int) (i * angleIncrement) % 360];
+
+    for (i = int){
+        rotate([0, 0, LR[i]])
+        translate([0, 0, i*layerHeight])
+        linear_extrude(layerHeight)
+        flatLayer(PR[i], PW[i], RO[i], RI[i]);
     }
 }
 
 
+bottomCap(bottomRadius);
 stackedPolygons();
